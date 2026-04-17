@@ -5,17 +5,17 @@ import plotly.express as px
 import plotly.figure_factory as ff
 import plotly.graph_objects as go
 from scipy import stats
-from openai import OpenAI
+import google.generativeai as genai  # Librería de Google
 
 # 1. CONFIGURACIÓN DE INTERFAZ
-st.set_page_config(page_title="Asistente Estadístico Z", layout="wide")
+st.set_page_config(page_title="Asistente Estadístico Z - Gemini", layout="wide")
 
 st.title("📊 Plataforma de Análisis Estadístico y Pruebas Z")
 st.markdown("Herramienta para documentar procesos creativos y manejo de errores de IA en software.")
 
 # 2. CONFIGURACIÓN DE IA (Barra lateral)
-st.sidebar.header("Conexión con IA")
-api_key = st.sidebar.text_input("Grok API Key:", type="password")
+st.sidebar.header("Conexión con Google AI")
+api_key = st.sidebar.text_input("Gemini API Key:", type="password")
 
 # 3. CARGA DE DATOS
 st.sidebar.header("Gestión de Datos")
@@ -87,32 +87,34 @@ if df is not None:
     fig_gauss.add_vline(x=z_val, line_color="green", annotation_text="Tu Z")
     st.plotly_chart(fig_gauss, use_container_width=True)
 
-    # 6. ASISTENTE IA (SOLUCIÓN AL ERROR DE CONTENIDO VACÍO)
+    # 6. ASISTENTE IA (IMPLEMENTACIÓN CON GEMINI)
     if api_key:
-        st.header("3. Consultoría con IA")
-        if st.button("Obtener Análisis de Grok"):
+        st.header("3. Consultoría con Gemini")
+        if st.button("Obtener Análisis de Gemini"):
             try:
-                client = OpenAI(api_key=api_key, base_url="https://api.xai.com/v1")
+                # Configurar Gemini
+                genai.configure(api_key=api_key)
+                model = genai.GenerativeModel('gemini-2.5-flash')
                 
-                # Prompt optimizado para evitar filtros de contenido vacío
-                prompt = f"Analiza estadísticamente: Media Muestral {media_m:.2f}, H0 {mu_h0}, Z {z_val:.2f}, P {p:.4f}. ¿Es significativo?"
+                # Construcción del prompt
+                prompt = (
+                    f"Actúa como un experto en estadística. Analiza los siguientes resultados: "
+                    f"Media Muestral: {media_m:.2f}, Hipótesis Nula (H0): {mu_h0}, "
+                    f"Estadístico Z: {z_val:.2f}, P-Value: {p:.4f}, Nivel de significancia: {alpha}. "
+                    f"¿Es el resultado estadísticamente significativo? Explica brevemente por qué "
+                    f"y qué significa para el problema."
+                )
                 
-                with st.spinner("Llamando a Grok-Beta..."):
-                    chat = client.chat.completions.create(
-                        model="grok-beta",
-                        messages=[
-                            {"role": "system", "content": "Eres un experto en estadística. Responde de forma concisa."},
-                            {"role": "user", "content": prompt}
-                        ],
-                        temperature=0.7 # Mayor creatividad para evitar respuestas nulas
-                    )
+                with st.spinner("Gemini está analizando los datos..."):
+                    response = model.generate_content(prompt)
                 
-                if chat.choices and chat.choices[0].message.content:
-                    st.info("### Respuesta de Grok:")
-                    st.write(chat.choices[0].message.content)
+                if response.text:
+                    st.info("### Análisis de la IA:")
+                    st.markdown(response.text)
                 else:
-                    st.warning("La API conectó pero no generó texto. Verifica que tu saldo en xAI sea mayor a $0.")
+                    st.warning("Gemini no pudo generar una respuesta clara.")
+                    
             except Exception as e:
-                st.error(f"Falla técnica: {e}")
+                st.error(f"Falla técnica con la API de Google: {e}")
     else:
-        st.info("Ingresa tu API Key en la barra lateral para activar la IA.")
+        st.info("Ingresa tu Gemini API Key en la barra lateral para activar la IA.")
