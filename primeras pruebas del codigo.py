@@ -3,58 +3,116 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.figure_factory as ff
+import plotly.graph_objects as go
 from scipy import stats
+from openai import OpenAI
 
-# Configuración de la página
-st.set_page_config(page_title="Asistente Estadístico IA", layout="wide")
+# 1. CONFIGURACIÓN DE INTERFAZ
+st.set_page_config(page_title="Asistente Estadístico Z", layout="wide")
 
 st.title("📊 Plataforma de Análisis Estadístico y Pruebas Z")
-st.markdown("""
-Esta aplicación permite documentar el proceso creativo y las limitaciones de la IA en el desarrollo de software. [cite: 1]
-""")
+st.markdown("Herramienta para documentar procesos creativos y manejo de errores de IA en software.")
 
-# --- MÓDULO 1: CARGA DE DATOS [cite: 7] ---
-st.sidebar.header("Configuración de Datos")
-metodo_carga = st.sidebar.radio("Selecciona método:", ["Cargar CSV", "Generar Datos Sintéticos"])
+# 2. CONFIGURACIÓN DE IA (Barra lateral)
+st.sidebar.header("Conexión con IA")
+api_key = st.sidebar.text_input("Grok API Key:", type="password")
+
+# 3. CARGA DE DATOS
+st.sidebar.header("Gestión de Datos")
+metodo = st.sidebar.radio("Origen de datos:", ["Generar Automático", "Subir Archivo CSV"])
 
 df = None
-
-if metodo_carga == "Cargar CSV":
-    uploaded_file = st.sidebar.file_uploader("Sube tu archivo CSV", type=["csv"])
-    if uploaded_file:
-        df = pd.read_csv(uploaded_file)
+if metodo == "Subir Archivo CSV":
+    up = st.sidebar.file_uploader("Archivo CSV", type=["csv"])
+    if up: df = pd.read_csv(up)
 else:
-    n_sintetico = st.sidebar.slider("Tamaño de muestra (n >= 30)", 30, 500, 100)
-    media_sintetica = st.sidebar.number_input("Media real", value=50.0)
-    st_dev_sintetica = st.sidebar.number_input("Desviación estándar real", value=10.0)
-    
+    n = st.sidebar.slider("Tamaño de muestra", 30, 500, 100)
     if st.sidebar.button("Generar Datos"):
-        data = np.random.normal(media_sintetica, st_dev_sintetica, n_sintetico)
-        df = pd.DataFrame(data, columns=["Variable_Sintetica"])
+        df = pd.DataFrame(np.random.normal(50, 10, n), columns=["Variable"])
 
-# --- MÓDULO 2: VISUALIZACIÓN [cite: 10] ---
+# --- LÓGICA DE PROCESAMIENTO ---
 if df is not None:
-    st.header("1. Visualización de Distribuciones")
-    columna = st.selectbox("Selecciona la variable a analizar:", df.columns)
+    col = st.selectbox("Selecciona variable:", df.columns)
     
+    # 4. GRÁFICAS DE DISTRIBUCIÓN
+    st.header("1. Análisis Visual")
     col1, col2 = st.columns(2)
-    
     with col1:
-        # Histograma y KDE [cite: 11, 12]
-        fig_hist = ff.create_distplot([df[columna]], [columna], bin_size=.5)
-        st.plotly_chart(fig_hist, use_container_width=True)
-        
+        st.plotly_chart(ff.create_distplot([df[col]], [col]), use_container_width=True)
     with col2:
-        # Boxplot [cite: 13]
-        fig_box = px.box(df, y=columna, title=f"Boxplot de {columna}")
-        st.plotly_chart(fig_box, use_container_width=True)
+        st.plotly_chart(px.box(df, y=col, title="Boxplot"), use_container_width=True)
 
-    # --- Cuestionario de Interpretación [cite: 14] ---
-    st.subheader("Interpretación del Estudiante")
-    normalidad = st.radio("¿La distribución parece normal?", ["Sí", "No", "Incierto"])
-    sesgo = st.text_area("¿Hay sesgo o outliers detectados?")
+    # Inputs del estudiante
+    st.subheader("Documentación del Estudiante")
+    normal = st.radio("¿Sigue una distribución normal?", ["Sí", "No"])
+    comentarios = st.text_area("Notas sobre sesgo u outliers:")
+
+    # 5. CÁLCULOS DE PRUEBA Z
+    st.header("2. Inferencia Estadística (Prueba Z)")
+    c_z1, c_z2 = st.columns(2)
     
-    st.info("Guarda estas respuestas para compararlas con la IA más adelante.")
+    with c_z1:
+        mu_h0 = st.number_input("H0 (Media)", value=float(df[col].mean()))
+        alpha = st.number_input("Significancia (α)", 0.01, 0.10, 0.05)
+        cola = st.selectbox("Tipo:", ["Bilateral", "Superior", "Inferior"])
+        std_pob = st.number_input("Sigma (σ)", value=float(df[col].std()))
 
-else:
-    st.warning("Por favor, carga o genera datos para comenzar.")
+    n_size = len(df[col])
+    media_m = df[col].mean()
+    z_val = (media_m - mu_h0) / (std_pob / np.sqrt(n_size))
+    
+    if cola == "Bilateral":
+        p = 2 * (1 - stats.norm.cdf(abs(z_val)))
+        z_c = stats.norm.ppf(1 - alpha/2)
+        r = abs(z_val) > z_c
+    elif cola == "Superior":
+        p = 1 - stats.norm.cdf(z_val)
+        z_c = stats.norm.ppf(1 - alpha)
+        r = z_val > z_c
+    else:
+        p = stats.norm.cdf(z_val)
+        z_c = stats.norm.ppf(alpha)
+        r = z_val < z_c
+
+    with c_z2:
+        st.metric("Estadístico Z", f"{z_val:.4f}")
+        st.metric("P-Value", f"{p:.4f}")
+        if r: st.error("Decisión: Rechazar H0")
+        else: st.success("Decisión: No rechazar H0")
+
+    # Curva de Gauss
+    x_axis = np.linspace(-4, 4, 1000)
+    fig_gauss = go.Figure()
+    fig_gauss.add_trace(go.Scatter(x=x_axis, y=stats.norm.pdf(x_axis), mode='lines', name='Normal'))
+    fig_gauss.add_vline(x=z_val, line_color="green", annotation_text="Tu Z")
+    st.plotly_chart(fig_gauss, use_container_width=True)
+
+    # 6. ASISTENTE IA (SOLUCIÓN AL ERROR DE CONTENIDO VACÍO)
+    if api_key:
+        st.header("3. Consultoría con IA")
+        if st.button("Obtener Análisis de Grok"):
+            try:
+                client = OpenAI(api_key=api_key, base_url="https://api.xai.com/v1")
+                
+                # Prompt optimizado para evitar filtros de contenido vacío
+                prompt = f"Analiza estadísticamente: Media Muestral {media_m:.2f}, H0 {mu_h0}, Z {z_val:.2f}, P {p:.4f}. ¿Es significativo?"
+                
+                with st.spinner("Llamando a Grok-Beta..."):
+                    chat = client.chat.completions.create(
+                        model="grok-beta",
+                        messages=[
+                            {"role": "system", "content": "Eres un experto en estadística. Responde de forma concisa."},
+                            {"role": "user", "content": prompt}
+                        ],
+                        temperature=0.7 # Mayor creatividad para evitar respuestas nulas
+                    )
+                
+                if chat.choices and chat.choices[0].message.content:
+                    st.info("### Respuesta de Grok:")
+                    st.write(chat.choices[0].message.content)
+                else:
+                    st.warning("La API conectó pero no generó texto. Verifica que tu saldo en xAI sea mayor a $0.")
+            except Exception as e:
+                st.error(f"Falla técnica: {e}")
+    else:
+        st.info("Ingresa tu API Key en la barra lateral para activar la IA.")
